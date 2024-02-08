@@ -1,0 +1,82 @@
+---
+title: "2024_02_08_ASO_Biotin_pulldown_Data_processing"
+output: html_notebook
+---
+
+
+
+```{r}
+library(ggplot2)
+library(MSnbase)
+library(biobroom)
+library(camprotR)
+library(Proteomics.analysis.data)
+library(dplyr)
+library(tidyr)
+library(here)
+
+```
+
+Input data
+
+```{r}
+pep_data <- read.delim(here("2024_02_08_Peptide_data.txt"))
+
+str(pep_data)
+```
+
+
+filter crap proteins
+
+```{r}
+crap_fasta_inf <-here('2023_02_CCP_cRAP.fasta')
+
+# Load the cRAP FASTA used for the PD search
+crap_fasta <- Biostrings::fasta.index(crap_fasta_inf, seqtype = "AA")
+
+# Extract the UniProt accessions associated with each cRAP protein
+crap_accessions <- crap_fasta %>%
+  pull(desc) %>%
+  stringr::str_extract_all(pattern="(?<=\\|).*?(?=\\|)") %>%
+  unlist()
+```
+
+
+```{r}
+sample_data <-read.csv("Sample_data.csv")
+
+# Displaying the table in a nicer format
+knitr::kable(sample_data,
+             align = "cccc",
+             format = "html",
+             table.attr = "style='width:30%;'")
+```
+
+
+
+Convert to an MsnSet
+
+```{r}
+exprs_data <- pep_data %>%
+  select(matches("Abundance")) %>%
+  setNames(sample_data$Sample) %>%
+  as.matrix()
+
+# Create data.frame with sample metadata (pData)
+pheno_data <- sample_data %>%
+  select(-File) %>%
+  tibble::column_to_rownames(var = "Sample")
+
+# Create data.frame with peptide metadata (fData)
+feature_data <- pep_data %>%
+  select(-matches("Abundance"))
+
+# Create MSnSet
+pep <- MSnbase::MSnSet(exprs = exprs_data,
+                       fData = feature_data,
+                       pData = pheno_data)
+```
+
+
+
+
