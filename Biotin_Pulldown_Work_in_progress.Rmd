@@ -63,6 +63,7 @@ pep_data_flt <- pep_data_flt %>% filter(!grepl(';', Master.Protein.Accessions))
 camprotR:::message_parse(pep_data_flt, 'Master.Protein.Accessions', "features with non-unique master proteins removed")
 ```
 
+
 ```{r}
 sample_data <-read.csv("Sample_data.csv")
 
@@ -76,6 +77,10 @@ knitr::kable(sample_data,
 Convert to an MsnSet
 
 *A `MsnSet` is a proteomics-specific data structure, with functions available for standard proteomics workflows. It's since been deprecated and replaced by `Qfeatures`, which allows multiple levels of quantification to be stored in the same object, with details about how the features in each level are linked. Nonetheless, a `MsnSet` is still a sensible data structure to use for proteomics data. Many `camprotR` functions have been written explicitly to work with `MsnSets`, for example `plot_quant` in the code block after this.*
+
+```{r}
+feature_data  %>% filter(Master.Protein.Accessions=='P02533; P08727')
+```
 
 ```{r}
 #select columns with the word "abundance" in.
@@ -132,28 +137,7 @@ pep <- MSnbase::MSnSet(exprs = exprs_data,
 ```
 
 
-```{r}
-exprs_data <- read.csv("Exprs_Matrix.csv") %>%
-  setNames(sample_data$Sample) %>%
-   as.matrix()
 
-
-# Create data.frame with sample metadata (pData)
-#takes sample data and selects every column without "file" in the name, then creates a tibble with the rownames as the column "sample"
-pheno_data <- sample_data %>%
-  select(-File) %>%
-  tibble::column_to_rownames(var = "Sample")
-
-# Create data.frame with peptide metadata (fData)
-# select all columns except those with abundance in the name.
-feature_data <- pep_data %>%
-  select(-matches("Abundance"))
-
-# Create MSnSet
-pep <- MSnbase::MSnSet(exprs = exprs_data,
-                       fData = feature_data,
-                       pData = pheno_data)
-```
 
 
 Let's QC the peptides
@@ -371,7 +355,8 @@ deqms_results_lna %>%
 lfq_protein_tidy_ion <- lfq_protein %>%
   # make the MSnSet into 'tidy' format for further testing
   biobroom::tidy.MSnSet(addPheno=TRUE) %>% # addPheno=TRUE adds the phenotype columns
-  subset(sample=="NCL_ION_1"| sample=="NCL_ION_2" | sample=="NCL_ION_3" | sample=="CL_ION_1"| sample=="CL_ION_2" | sample=="CL_ION_3") %>%
+  # TS: would be best to have a column in the pData which describes the VEH/LNA/ION variable, so you can just filter using that column
+  subset(sample %in% c("NCL_ION_1", "NCL_ION_2", "NCL_ION_3", "CL_ION_1", "CL_ION_2", "CL_ION_3")) %>%
   filter(is.finite(value)) %>%
   group_by(protein, Condition) %>%
   filter(n()>=2) %>% 
@@ -379,7 +364,6 @@ lfq_protein_tidy_ion <- lfq_protein %>%
   filter(length(unique(Condition))==2) %>%# n() is the length of the group
   ungroup()
 
-  
 # This could be a function since it always be the same steps
 # make_expr_wide <- function(tidy_expr) {}
 filtered_exprs_ion <- lfq_protein_tidy_ion %>%
@@ -451,7 +435,7 @@ deqms_results_ion %>%
 ```
 
 
----------------------Test LNA CL vs NCL data--------------------------
+---------------------Test VEH CL vs NCL data--------------------------
 
 
 ```{r}
@@ -541,20 +525,20 @@ deqms_results_veh %>%
 
 ---------------------Test ION CL vs LNA CL data--------------------------
 
+```{r}
+plot_quant(lfq_protein[,grepl('^CL_(ION|LNA)_\\d', colnames(lfq_protein))], method='density') +
+  scale_colour_manual(values=rep(get_cat_palette(2), each=3))
+
+plot_quant(lfq_protein[,grepl('^CL_(ION|LNA)_\\d', colnames(lfq_protein))], method='box')
+```
 
 ```{r}
 
 lfq_protein_tidy_ION_LNA <- lfq_protein %>%
   # make the MSnSet into 'tidy' format for further testing
   biobroom::tidy.MSnSet(addPheno=TRUE) %>% # addPheno=TRUE adds the phenotype columns
-  subset(sample=="CL_ION_1"| sample=="CL_ION_2" | sample=="CL_ION_3" | sample=="CL_LNA_1"| sample=="CL_LNA_2" | sample=="CL_LNA_3") %>%
-  mutate(Treatment = ifelse(sample == "CL_ION_1", "ION",
-                      ifelse(sample == "CL_ION_2", "ION",
-                      ifelse(sample == "CL_ION_3", "ION", 
-                      ifelse(sample == "CL_LNA_1", "LNA",
-                      ifelse(sample == "CL_LNA_2", "LNA",
-                      ifelse(sample == "CL_LNA_3", "LNA",
-                      "N/A"))))))) %>%
+  filter(grepl('^CL_(ION|LNA)_\\d', sample)) %>%
+  separate(sample, into=c(NA, 'Treatment', NA), remove = FALSE) %>%
   filter(is.finite(value)) %>%
   group_by(protein) %>%
   filter(n()>=2) %>% 
@@ -577,15 +561,9 @@ filtered_exprs_ion_lna_cl <- lfq_protein_tidy_ION_LNA %>%
 
 library(tibble)
 
-pheno_data2<- rownames_to_column(pheno_data, var = "sample")
+pheno_data2<- rownames_to_column(pData(lfq_protein[,colnames(filtered_exprs_ion_lna_cl)]), var = "sample")
 
-pheno_data2 <- pheno_data2 %>% mutate(Treatment = ifelse(sample == "CL_ION_1", "ION",
-                      ifelse(sample == "CL_ION_2", "ION",
-                      ifelse(sample == "CL_ION_3", "ION", 
-                      ifelse(sample == "CL_LNA_1", "LNA",
-                      ifelse(sample == "CL_LNA_2", "LNA",
-                      ifelse(sample == "CL_LNA_3", "LNA",
-                      "N/A"))))))) 
+pheno_data2 <- pheno_data2 %>% separate(sample, into=c(NA, 'Treatment', NA), remove = FALSE) 
 
 treatment2 <- pheno_data2$Treatment
 treatment2 <- factor(treatment2, levels = c('LNA', 'ION'))
@@ -621,7 +599,8 @@ efit_deqms_ion_lna_cl <- suppressWarnings(spectraCounteBayes(limma_fit_ion_lna_c
 
 VarianceBoxplot(efit_deqms_ion_lna_cl, n = 30, xlab = "Peptides")
 
-deqms_results_ion_lna_cl <- outputResult(efit_deqms_ion_lna_cl, coef_col=2)
+head(coefficients(efit_deqms_ion_lna_cl))
+deqms_results_ion_lna_cl <- outputResult(efit_deqms_ion_lna_cl, coef_col=3)
 ```
 
 
